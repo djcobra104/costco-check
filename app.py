@@ -150,4 +150,57 @@ async def check_costco_stock(query: str) -> list:
           title = title_candidates[0] if title_candidates else "상품명 확인 불가"
 
           query_words = [w for w in query.split() if len(w) >= 2]
-          if query
+          if query_words and not any(
+            w.lower() in f"{title} {raw_text}".lower() for w in query_words
+          ):
+            continue
+
+          is_sold_out = ("품절" in raw_text) or ("일시품절" in raw_text)
+
+          combined_text = f"{title} {price} {raw_text}".lower()
+          if any(
+            k in combined_text for k in ["warehouse", "매장", "창고형", "오프라인"]
+          ):
+            channel = "매장"
+          else:
+            channel = "쇼핑몰"
+
+          dedup_key = (title, price, channel)
+          if dedup_key in seen:
+            continue
+          seen.add(dedup_key)
+
+          results.append({
+            "title": title,
+            "price": price,
+            "status": "품절" if is_sold_out else "재고 있음 / 확인 필요",
+            "channel": channel,
+          })
+
+      await browser.close()
+  except Exception as e:
+    print(f"   -> Costco 조회 실패: {type(e).__name__}: {e}")
+
+  return results
+
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+  with open("index.html", "r", encoding="utf-8") as f:
+    return f.read()
+
+
+@app.post("/check")
+async def check_image(file: UploadFile = File(...)):
+  image_bytes = await file.read()
+  mime_type = file.content_type or "image/jpeg"
+
+  info = extract_product_info(image_bytes, mime_type)
+  query = info.get("item_number") or info.get("search_keyword") or ""
+  products = await check_costco_stock(str(query))
+
+  return {
+    "extracted": info,
+    "query_used": query,
+    "products": products,
+  }
