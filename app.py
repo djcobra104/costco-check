@@ -59,7 +59,16 @@ async def check_costco_stock(query: str) -> list:
     return []
 
   async with async_playwright() as p:
-    browser = await p.chromium.launch(headless=True)
+    browser = await p.chromium.launch(
+    headless=True,
+    args=[
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--single-process",
+    ],
+)
     context = await browser.new_context(
         user_agent=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
