@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>코스트코 재고 바로확인</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+            background-color: #f4f5f7;
+            margin: 0;
+            padding: 16px;
+            color: #111;
+        }
+        .box {
+            max-width: 520px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+        }
+        h1 {
+            font-size: 20px;
+            margin: 0 0 16px 0;
+        }
+        .cam-btn {
+            display: block;
+            width: 100%;
+            text-align: center;
+            background-color: #e31837;
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 700;
+            padding: 14px 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .cam-btn:active {
+            opacity: 0.9;
+        }
+        #cameraInput {
+            display: none;
+        }
+        #preview {
+            display: none;
+            width: 100%;
+            max-height: 320px;
+            object-fit: contain;
+            margin-top: 14px;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            background: #fafafa;
+        }
+        #status {
+            margin-top: 14px;
+            font-size: 14px;
+            color: #374151;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+        #results {
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .card {
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 14px;
+            background: #ffffff;
+        }
+        .badge-ok, .badge-out, .badge-shop, .badge-store {
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 999px;
+            margin-right: 6px;
+        }
+        .badge-ok {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+        .badge-out {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .badge-shop {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+        .badge-store {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        .title {
+            margin-top: 8px;
+            font-size: 15px;
+            font-weight: 700;
+            color: #111827;
+            line-height: 1.4;
+        }
+        .price {
+            margin-top: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>코스트코 재고 확인</h1>
+        <label for="cameraInput" class="cam-btn">📷 사진 찍고 바로 확인</label>
+        <input id="cameraInput" type="file" accept="image/*" capture="environment" />
+
+        <img id="preview" alt="촬영한 사진 미리보기" />
+        <div id="status">버튼을 눌러 사진을 찍어주세요.</div>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const input = document.getElementById("cameraInput");
+        const preview = document.getElementById("preview");
+        const statusEl = document.getElementById("status");
+        const resultsEl = document.getElementById("results");
+
+        input.addEventListener("change", async (e) => {
+            const files = e.target.files;
+            const file = files && files.length > 0 ? files[0] : null;
+
+            // 같은 파일을 다시 선택하거나 촬영해도 change 이벤트가 발생하도록 초기화
+            e.target.value = "";
+
+            if (!file) {
+                statusEl.textContent = "사진이 선택되지 않았습니다. 다시 찍어주세요.";
+                return;
+            }
+
+            try {
+                preview.src = URL.createObjectURL(file);
+                preview.style.display = "block";
+            } catch (_) {
+                // 미리보기 생성 실패 시에도 조회는 계속 진행
+            }
+
+            statusEl.textContent = "사진 분석 및 재고 조회 중...";
+            resultsEl.innerHTML = "";
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const res = await fetch("/check", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    statusEl.textContent = `서버 응답 오류 (${res.status}): ${errText}`;
+                    return;
+                }
+
+                const data = await res.json();
+                statusEl.textContent = `검색어: "${data.query_used || ""}"`;
+
+                const products = Array.isArray(data.products) ? data.products : [];
+                if (products.length === 0) {
+                    resultsEl.innerHTML = `<div class="card">검색 결과가 없습니다.</div>`;
+                    return;
+                }
+
+                resultsEl.innerHTML = products.map((p) => {
+                    const statusText = p.status || "재고 있음 / 확인 필요";
+                    const isOut = statusText.includes("품절");
+                    const badgeClass = isOut ? "badge-out" : "badge-ok";
+
+                    const channelName = p.channel === "매장" ? "매장" : "쇼핑몰";
+                    const channelClass = channelName === "매장" ? "badge-store" : "badge-shop";
+
+                    return `
+                        <div class="card">
+                            <span class="${badgeClass}">${statusText}</span>
+                            <span class="${channelClass}">${channelName}</span>
+                            <div class="title">${p.title || "상품명 확인 불가"}</div>
+                            <div class="price">${p.price || "가격 정보 없음"}</div>
+                        </div>
+                    `;
+                }).join("");
+            } catch (err) {
+                statusEl.textContent = `조회 중 오류가 발생했습니다: ${err.message}`;
+            }
+        });
+    </script>
+</body>
+</html>
